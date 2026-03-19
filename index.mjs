@@ -72,7 +72,7 @@ export async function AnthropicAuthPlugin({ client }) {
   return {
     "experimental.chat.system.transform": (input, output) => {
       const prefix =
-        "You are Claude Code, Anthropic's official CLI for Claude.";
+        "x-anthropic-billing-header: cc_version=2.1.76.4dc; cc_entrypoint=cli; cch=00000; You are Claude Code, Anthropic's official CLI for Claude.";
       if (input.model?.providerID === "anthropic") {
         output.system.unshift(prefix);
         if (output.system[1])
@@ -185,8 +185,10 @@ export async function AnthropicAuthPlugin({ client }) {
               requestHeaders.set("anthropic-beta", mergedBetas);
               requestHeaders.set(
                 "user-agent",
-                "claude-cli/2.1.2 (external, cli)",
+                "claude-cli/2.1.76"
               );
+              requestHeaders.set('referer', 'https://api.anthropic.com/new');
+              requestHeaders.set('origin', 'https://api.anthropic.com/');
               requestHeaders.delete("x-api-key");
 
               const TOOL_PREFIX = "mcp_";
