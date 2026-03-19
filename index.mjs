@@ -112,6 +112,10 @@ async function exchange(code, verifier) {
  * @type {import('@opencode-ai/plugin').Plugin}
  */
 export async function AnthropicAuthPlugin({ client }) {
+  await client.app.log({
+    body: { service: "anthropic-auth", level: "info", message: "Plugin loaded", extra: { version: CLAUDE_CODE_VERSION } },
+  });
+
   return {
     "experimental.chat.system.transform": (input, output) => {
       const prefix =
@@ -126,6 +130,10 @@ export async function AnthropicAuthPlugin({ client }) {
       provider: "anthropic",
       async loader(getAuth, provider) {
         const auth = await getAuth();
+        await client.app.log({
+          body: { service: "anthropic-auth", level: "info", message: "loader called", extra: { authType: auth.type } },
+        });
+
         if (auth.type === "oauth") {
           // zero out cost for max plan
           for (const model of Object.values(provider.models)) {
@@ -147,7 +155,11 @@ export async function AnthropicAuthPlugin({ client }) {
             async fetch(input, init) {
               const auth = await getAuth();
               if (auth.type !== "oauth") return fetch(input, init);
+
               if (!auth.access || auth.expires < Date.now()) {
+                await client.app.log({
+                  body: { service: "anthropic-auth", level: "info", message: "refreshing token", extra: { expired: auth.expires < Date.now(), hasAccess: !!auth.access } },
+                });
                 const response = await fetch(
                   "https://console.anthropic.com/v1/oauth/token",
                   {
@@ -163,13 +175,15 @@ export async function AnthropicAuthPlugin({ client }) {
                   },
                 );
                 if (!response.ok) {
+                  const text = await response.text();
+                  await client.app.log({
+                    body: { service: "anthropic-auth", level: "error", message: "token refresh failed", extra: { status: response.status, body: text } },
+                  });
                   throw new Error(`Token refresh failed: ${response.status}`);
                 }
                 const json = await response.json();
                 await client.auth.set({
-                  path: {
-                    id: "anthropic",
-                  },
+                  path: { id: "anthropic" },
                   body: {
                     type: "oauth",
                     refresh: json.refresh_token,
@@ -179,6 +193,7 @@ export async function AnthropicAuthPlugin({ client }) {
                 });
                 auth.access = json.access_token;
               }
+
               const requestInit = init ?? {};
 
               const requestHeaders = new Headers();
@@ -199,9 +214,7 @@ export async function AnthropicAuthPlugin({ client }) {
                     }
                   }
                 } else {
-                  for (const [key, value] of Object.entries(
-                    requestInit.headers,
-                  )) {
+                  for (const [key, value] of Object.entries(requestInit.headers)) {
                     if (typeof value !== "undefined") {
                       requestHeaders.set(key, String(value));
                     }
@@ -209,7 +222,6 @@ export async function AnthropicAuthPlugin({ client }) {
                 }
               }
 
-              // Preserve all incoming beta headers while ensuring OAuth requirements
               const incomingBeta = requestHeaders.get("anthropic-beta") || "";
               const incomingBetasList = incomingBeta
                 .split(",")
@@ -235,14 +247,14 @@ export async function AnthropicAuthPlugin({ client }) {
                 try {
                   const parsed = JSON.parse(body);
 
-                  // Inject billing header as first system block
                   if (parsed.messages && Array.isArray(parsed.messages)) {
                     const billingHeader = await claudeCodeBillingHeader(parsed.messages);
+                    await client.app.log({
+                      body: { service: "anthropic-auth", level: "debug", message: "billing header", extra: { billingHeader } },
+                    });
                     parsed.system = prependSystemBlock(parsed.system, billingHeader);
                   }
 
-                  // Sanitize system prompt - server blocks "OpenCode" string
-                  // Note: (?<!\/) preserves paths like /path/to/opencode-foo
                   if (parsed.system && Array.isArray(parsed.system)) {
                     parsed.system = parsed.system.map((item) => {
                       if (item.type === "text" && item.text) {
@@ -257,25 +269,18 @@ export async function AnthropicAuthPlugin({ client }) {
                     });
                   }
 
-                  // Add prefix to tools definitions
                   if (parsed.tools && Array.isArray(parsed.tools)) {
                     parsed.tools = parsed.tools.map((tool) => ({
                       ...tool,
-                      name: tool.name
-                        ? `${TOOL_PREFIX}${tool.name}`
-                        : tool.name,
+                      name: tool.name ? `${TOOL_PREFIX}${tool.name}` : tool.name,
                     }));
                   }
-                  // Add prefix to tool_use blocks in messages
                   if (parsed.messages && Array.isArray(parsed.messages)) {
                     parsed.messages = parsed.messages.map((msg) => {
                       if (msg.content && Array.isArray(msg.content)) {
                         msg.content = msg.content.map((block) => {
                           if (block.type === "tool_use" && block.name) {
-                            return {
-                              ...block,
-                              name: `${TOOL_PREFIX}${block.name}`,
-                            };
+                            return { ...block, name: `${TOOL_PREFIX}${block.name}` };
                           }
                           return block;
                         });
@@ -285,7 +290,9 @@ export async function AnthropicAuthPlugin({ client }) {
                   }
                   body = JSON.stringify(parsed);
                 } catch (e) {
-                  // ignore parse errors
+                  await client.app.log({
+                    body: { service: "anthropic-auth", level: "warn", message: "failed to parse request body", extra: { error: String(e) } },
+                  });
                 }
               }
 
@@ -313,13 +320,20 @@ export async function AnthropicAuthPlugin({ client }) {
                     : requestUrl;
               }
 
+              await client.app.log({
+                body: { service: "anthropic-auth", level: "info", message: "sending request", extra: { url: requestUrl?.toString(), betas: mergedBetas, userAgent: CLAUDE_CODE_USER_AGENT } },
+              });
+
               const response = await fetch(requestInput, {
                 ...requestInit,
                 body,
                 headers: requestHeaders,
               });
 
-              // Transform streaming response to rename tools back
+              await client.app.log({
+                body: { service: "anthropic-auth", level: response.ok ? "info" : "error", message: "response received", extra: { status: response.status, statusText: response.statusText } },
+              });
+
               if (response.body) {
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
@@ -368,6 +382,9 @@ export async function AnthropicAuthPlugin({ client }) {
               method: "code",
               callback: async (code) => {
                 const credentials = await exchange(code, verifier);
+                await client.app.log({
+                  body: { service: "anthropic-auth", level: "info", message: "oauth exchange", extra: { type: credentials.type } },
+                });
                 return credentials;
               },
             };
