@@ -120,7 +120,7 @@ async function exchange(code, verifier) {
 }
 
 export async function AnthropicAuthPlugin({ client }) {
-  console.log("[anthropic-auth] plugin loaded", { version: VERSION });
+  // console.log("[anthropic-auth] plugin loaded", { version: VERSION });
 
   return {
     async "experimental.chat.system.transform"(input, output) {
@@ -134,7 +134,7 @@ export async function AnthropicAuthPlugin({ client }) {
       provider: "anthropic",
       async loader(getAuth, provider) {
         const auth = await getAuth();
-        console.log("[anthropic-auth] loader called", { authType: auth.type });
+        // console.log("[anthropic-auth] loader called", { authType: auth.type });
 
         if (auth.type !== "oauth") return {};
 
@@ -153,7 +153,7 @@ export async function AnthropicAuthPlugin({ client }) {
             if (auth.type !== "oauth") return fetch(input, init);
 
             if (!auth.access || auth.expires < Date.now()) {
-              console.log("[anthropic-auth] refreshing token", { expired: auth.expires < Date.now(), hasAccess: !!auth.access });
+              // console.log("[anthropic-auth] refreshing token", { expired: auth.expires < Date.now(), hasAccess: !!auth.access });
               const res = await fetch(
                 "https://console.anthropic.com/v1/oauth/token",
                 {
@@ -169,7 +169,7 @@ export async function AnthropicAuthPlugin({ client }) {
 
               if (!res.ok) {
                 const text = await res.text();
-                console.log("[anthropic-auth] token refresh failed", { status: res.status, body: text });
+                // console.log("[anthropic-auth] token refresh failed", { status: res.status, body: text });
                 throw new Error(`Token refresh failed: ${res.status}`);
               }
 
@@ -253,7 +253,7 @@ export async function AnthropicAuthPlugin({ client }) {
 
                 body = JSON.stringify(json);
               } catch (e) {
-                console.log("[anthropic-auth] failed to parse request body", { error: String(e) });
+                // console.log("[anthropic-auth] failed to parse request body", { error: String(e) });
               }
             }
 
@@ -266,7 +266,7 @@ export async function AnthropicAuthPlugin({ client }) {
 
             if (url?.pathname === "/v1/messages" && typeof body === "string") {
               const billingValue = billing(body);
-              console.log("[anthropic-auth] billing header", { billingValue });
+              // console.log("[anthropic-auth] billing header", { billingValue });
               headers.set("x-anthropic-billing-header", billingValue);
             }
 
@@ -277,11 +277,11 @@ export async function AnthropicAuthPlugin({ client }) {
                 : url;
             }
 
-            console.log("[anthropic-auth] sending request", { url: url?.toString(), betas: headers.get("anthropic-beta"), userAgent: AGENT });
+            // console.log("[anthropic-auth] sending request", { url: url?.toString(), betas: headers.get("anthropic-beta"), userAgent: AGENT });
 
             const res = await fetch(input, { ...req, body, headers });
 
-            console.log("[anthropic-auth] response received", { status: res.status, statusText: res.statusText });
+            // console.log("[anthropic-auth] response received", { status: res.status, statusText: res.statusText });
 
             if (!res.body) return res;
 
@@ -322,7 +322,7 @@ export async function AnthropicAuthPlugin({ client }) {
               method: "code",
               callback: async (code) => {
                 const credentials = await exchange(code, auth.verifier);
-                console.log("[anthropic-auth] oauth exchange", { type: credentials.type });
+                // console.log("[anthropic-auth] oauth exchange", { type: credentials.type });
                 return credentials;
               },
             };
