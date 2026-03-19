@@ -221,6 +221,7 @@ export async function AnthropicAuthPlugin({ client }) {
                 .filter(Boolean);
 
               const requiredBetas = [
+                "claude-code-20250219",
                 "oauth-2025-04-20",
                 "interleaved-thinking-2025-05-14",
               ];
