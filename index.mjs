@@ -112,9 +112,7 @@ async function exchange(code, verifier) {
  * @type {import('@opencode-ai/plugin').Plugin}
  */
 export async function AnthropicAuthPlugin({ client }) {
-  await client.app.log({
-    body: { service: "anthropic-auth", level: "info", message: "Plugin loaded", extra: { version: CLAUDE_CODE_VERSION } },
-  });
+  console.log("[anthropic-auth] Plugin loaded", { version: CLAUDE_CODE_VERSION });
 
   return {
     "experimental.chat.system.transform": (input, output) => {
@@ -130,9 +128,7 @@ export async function AnthropicAuthPlugin({ client }) {
       provider: "anthropic",
       async loader(getAuth, provider) {
         const auth = await getAuth();
-        await client.app.log({
-          body: { service: "anthropic-auth", level: "info", message: "loader called", extra: { authType: auth.type } },
-        });
+        console.log("[anthropic-auth] loader called", { authType: auth.type });
 
         if (auth.type === "oauth") {
           // zero out cost for max plan
@@ -157,9 +153,7 @@ export async function AnthropicAuthPlugin({ client }) {
               if (auth.type !== "oauth") return fetch(input, init);
 
               if (!auth.access || auth.expires < Date.now()) {
-                await client.app.log({
-                  body: { service: "anthropic-auth", level: "info", message: "refreshing token", extra: { expired: auth.expires < Date.now(), hasAccess: !!auth.access } },
-                });
+                console.log("[anthropic-auth] refreshing token", { expired: auth.expires < Date.now(), hasAccess: !!auth.access });
                 const response = await fetch(
                   "https://console.anthropic.com/v1/oauth/token",
                   {
@@ -176,9 +170,7 @@ export async function AnthropicAuthPlugin({ client }) {
                 );
                 if (!response.ok) {
                   const text = await response.text();
-                  await client.app.log({
-                    body: { service: "anthropic-auth", level: "error", message: "token refresh failed", extra: { status: response.status, body: text } },
-                  });
+                  console.log("[anthropic-auth] token refresh failed", { status: response.status, body: text });
                   throw new Error(`Token refresh failed: ${response.status}`);
                 }
                 const json = await response.json();
@@ -249,9 +241,7 @@ export async function AnthropicAuthPlugin({ client }) {
 
                   if (parsed.messages && Array.isArray(parsed.messages)) {
                     const billingHeader = await claudeCodeBillingHeader(parsed.messages);
-                    await client.app.log({
-                      body: { service: "anthropic-auth", level: "debug", message: "billing header", extra: { billingHeader } },
-                    });
+                    console.log("[anthropic-auth] billing header", { billingHeader });
                     parsed.system = prependSystemBlock(parsed.system, billingHeader);
                   }
 
@@ -290,9 +280,7 @@ export async function AnthropicAuthPlugin({ client }) {
                   }
                   body = JSON.stringify(parsed);
                 } catch (e) {
-                  await client.app.log({
-                    body: { service: "anthropic-auth", level: "warn", message: "failed to parse request body", extra: { error: String(e) } },
-                  });
+                  console.log("[anthropic-auth] failed to parse request body", { error: String(e) });
                 }
               }
 
@@ -320,9 +308,7 @@ export async function AnthropicAuthPlugin({ client }) {
                     : requestUrl;
               }
 
-              await client.app.log({
-                body: { service: "anthropic-auth", level: "info", message: "sending request", extra: { url: requestUrl?.toString(), betas: mergedBetas, userAgent: CLAUDE_CODE_USER_AGENT } },
-              });
+              console.log("[anthropic-auth] sending request", { url: requestUrl?.toString(), betas: mergedBetas, userAgent: CLAUDE_CODE_USER_AGENT });
 
               const response = await fetch(requestInput, {
                 ...requestInit,
@@ -330,9 +316,7 @@ export async function AnthropicAuthPlugin({ client }) {
                 headers: requestHeaders,
               });
 
-              await client.app.log({
-                body: { service: "anthropic-auth", level: response.ok ? "info" : "error", message: "response received", extra: { status: response.status, statusText: response.statusText } },
-              });
+              console.log("[anthropic-auth] response received", { status: response.status, statusText: response.statusText });
 
               if (response.body) {
                 const reader = response.body.getReader();
@@ -382,9 +366,7 @@ export async function AnthropicAuthPlugin({ client }) {
               method: "code",
               callback: async (code) => {
                 const credentials = await exchange(code, verifier);
-                await client.app.log({
-                  body: { service: "anthropic-auth", level: "info", message: "oauth exchange", extra: { type: credentials.type } },
-                });
+                console.log("[anthropic-auth] oauth exchange", { type: credentials.type });
                 return credentials;
               },
             };
