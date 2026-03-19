@@ -1,6 +1,49 @@
 import { generatePKCE } from "@openauthjs/openauth/pkce";
 
 const CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+const CLAUDE_CODE_VERSION = "2.1.76";
+const CLAUDE_CODE_USER_AGENT = `claude-code/${CLAUDE_CODE_VERSION}`;
+const CLAUDE_CODE_BILLING_SALT = "59cf53e54c78";
+
+function getFirstUserMessageText(messages) {
+  for (const msg of messages) {
+    if (msg.role === "user") {
+      if (typeof msg.content === "string") return msg.content;
+      if (Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          if (block.type === "text") return block.text;
+        }
+      }
+    }
+  }
+  return "";
+}
+
+function sampleCodeUnit(text, idx) {
+  return idx < text.length ? text[idx] : "0";
+}
+
+async function claudeCodeBillingHeader(messages) {
+  const firstUserText = getFirstUserMessageText(messages);
+  const sampled = [4, 7, 20].map((idx) => sampleCodeUnit(firstUserText, idx)).join("");
+  const toHash = `${CLAUDE_CODE_BILLING_SALT}${sampled}${CLAUDE_CODE_VERSION}`;
+  const hashBuffer = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(toHash),
+  );
+  const hashHex = Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return `x-anthropic-billing-header: cc_version=${CLAUDE_CODE_VERSION}.${hashHex.slice(0, 3)}; cc_entrypoint=cli; cch=00000;`;
+}
+
+function prependSystemBlock(system, block) {
+  const blockJson = { type: "text", text: block };
+  if (!system) return [blockJson];
+  if (typeof system === "string" && system.trim()) return [blockJson, { type: "text", text: system }];
+  if (Array.isArray(system)) return [blockJson, ...system];
+  return [blockJson];
+}
 
 /**
  * @param {"max" | "console"} mode
@@ -72,7 +115,7 @@ export async function AnthropicAuthPlugin({ client }) {
   return {
     "experimental.chat.system.transform": (input, output) => {
       const prefix =
-        "x-anthropic-billing-header: cc_version=2.1.76.4dc; cc_entrypoint=cli; cch=00000; You are Claude Code, Anthropic's official CLI for Claude.";
+        "You are Claude Code, Anthropic's official CLI for Claude.";
       if (input.model?.providerID === "anthropic") {
         output.system.unshift(prefix);
         if (output.system[1])
@@ -183,12 +226,7 @@ export async function AnthropicAuthPlugin({ client }) {
 
               requestHeaders.set("authorization", `Bearer ${auth.access}`);
               requestHeaders.set("anthropic-beta", mergedBetas);
-              requestHeaders.set(
-                "user-agent",
-                "claude-cli/2.1.76"
-              );
-              requestHeaders.set('referer', 'https://api.anthropic.com/new');
-              requestHeaders.set('origin', 'https://api.anthropic.com/');
+              requestHeaders.set("user-agent", CLAUDE_CODE_USER_AGENT);
               requestHeaders.delete("x-api-key");
 
               const TOOL_PREFIX = "mcp_";
@@ -196,6 +234,12 @@ export async function AnthropicAuthPlugin({ client }) {
               if (body && typeof body === "string") {
                 try {
                   const parsed = JSON.parse(body);
+
+                  // Inject billing header as first system block
+                  if (parsed.messages && Array.isArray(parsed.messages)) {
+                    const billingHeader = await claudeCodeBillingHeader(parsed.messages);
+                    parsed.system = prependSystemBlock(parsed.system, billingHeader);
+                  }
 
                   // Sanitize system prompt - server blocks "OpenCode" string
                   // Note: (?<!\/) preserves paths like /path/to/opencode-foo
